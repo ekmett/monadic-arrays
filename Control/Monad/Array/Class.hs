@@ -12,7 +12,7 @@
 ----------------------------------------------------------------------------
 module Control.Monad.Array.Class
   ( MonadArray(..)
---  , MonadArrayTrans(..)
+  , MonadUArray(..)
   ) where
 
 import Control.Applicative
@@ -23,22 +23,13 @@ import Control.Monad.Trans.Class
 import Data.Array.Base
 import Data.Array.IO
 import Data.Array.ST
-{-
-import Control.Monad.Trans.Error
-import Control.Monad.Trans.Identity
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Cont
-import Control.Monad.Trans.List
-import Control.Monad.Trans.Writer.Lazy as Lazy
-import Control.Monad.Trans.Writer.Strict as Strict
-import Control.Monad.Trans.State.Lazy as Lazy
-import Control.Monad.Trans.State.Strict as Strict
-import Control.Monad.Trans.RWS.Lazy as Lazy
-import Control.Monad.Trans.RWS.Strict as Strict
-import Data.Monoid
--}
+import Data.Array.MArray.Extras
+import Foreign.Ptr
+import Foreign.StablePtr
+import Data.Int
+import Data.Word
 
+-- | Arr m serves as a canonical choice of boxed MArray
 class Monad m => MonadArray m where
   data Arr m :: * -> * -> *
   getBoundsM       :: Ix i => Arr m i e -> m (i, i)
@@ -57,10 +48,6 @@ instance MonadArray m => MArray (Arr m) e m where
   newArray_ = newArrayM_
   unsafeRead = unsafeReadM
   unsafeWrite = unsafeWriteM
-
-class MonadArrayTrans t where
-  liftArr  :: MonadArray m => Arr m i e -> Arr (t m) i e
-  lowerArr :: MonadArray m => Arr (t m) i e -> Arr m i e
 
 instance MonadArray IO where
   newtype Arr IO i e = ArrIO { runArrIO :: IOArray i e } 
@@ -97,192 +84,103 @@ instance MonadArray STM where
 
 instance (MonadTrans t, Monad (t m), MonadArray m) => MonadArray (t m) where
   newtype Arr (t m) i e = ArrT { runArrT :: Arr m i e } 
-  getBoundsM                      = lift . getBounds . runArrT
-  getNumElementsM                 = lift . getNumElements . runArrT
-  newArrayM bs e                  = lift $ ArrT `liftM` newArray bs e
-  newArrayM_ bs                   = lift $ ArrT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs             = lift $ ArrT `liftM` unsafeNewArray_ bs
+
+  getBoundsM                = lift . getBounds . runArrT
+  getNumElementsM           = lift . getNumElements . runArrT
+  newArrayM bs e            = lift $ ArrT `liftM` newArray bs e
+  newArrayM_ bs             = lift $ ArrT `liftM` newArray_ bs
+  unsafeNewArrayM_ bs       = lift $ ArrT `liftM` unsafeNewArray_ bs
   unsafeReadM (ArrT a) i    = lift $ unsafeRead a i
   unsafeWriteM (ArrT a) i e = lift $ unsafeWrite a i e
 
-{-
-instance MonadArray m => MonadArray (ReaderT r m) where
-  newtype Arr (ReaderT r m) i e = ArrReaderT { runArrReaderT :: Arr m i e }
+-- | UArr m provides unboxed arrays, and can be used on the primitive data types:
+-- 
+-- 'Bool', 'Char', 'Int', 'Word', 'Double', 'Float', 'Int8', 'Int16', 'Int32', 'Int64', 'Word8',
+-- 'Word16', 'Word32', and 'Word64'
+-- 
+-- It can be used via 'MArray1' to store values of types @'StablePtr' a@, @'FunPtr' a@ and @'Ptr a'@ as well.
 
-  getBoundsM                      = lift . getBounds . runArrReaderT
-  getNumElementsM                 = lift . getNumElements . runArrReaderT
-  newArrayM bs e                  = lift $ ArrReaderT `liftM` newArray bs e
-  newArrayM_ bs                   = lift $ ArrReaderT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs             = lift $ ArrReaderT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrReaderT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrReaderT a) i e = lift $ unsafeWrite a i e
+class 
+  ( MonadArray m 
+  , MArray (UArr m) Bool m
+  , MArray (UArr m) Char m
+  , MArray (UArr m) Int  m
+  , MArray (UArr m) Word m
+  , MArray (UArr m) Double m
+  , MArray (UArr m) Float m
+  , MArray (UArr m) Int8 m
+  , MArray (UArr m) Int16 m
+  , MArray (UArr m) Int32 m
+  , MArray (UArr m) Int64 m
+  , MArray (UArr m) Word8 m
+  , MArray (UArr m) Word16 m
+  , MArray (UArr m) Word32 m
+  , MArray (UArr m) Word64 m
+  , MArray1 (UArr m) StablePtr m
+  , MArray1 (UArr m) FunPtr m
+  , MArray1 (UArr m) Ptr m 
+  ) => MonadUArray m where
+  data UArr m :: * -> * -> *
 
-instance MonadArrayTrans (ReaderT e) where
-  liftArr = ArrReaderT
-  lowerArr = runArrReaderT
+instance MArray IOUArray e IO => MArray (UArr IO) e IO where
+  getBounds                  = getBounds . runUArrIO
+  getNumElements             = getNumElements . runUArrIO
+  newArray bs e              = UArrIO <$> newArray bs e
+  newArray_ bs               = UArrIO <$> newArray_ bs
+  unsafeNewArray_ bs         = UArrIO <$> unsafeNewArray_ bs
+  unsafeRead (UArrIO a) i    = unsafeRead a i
+  unsafeWrite (UArrIO a) i e = unsafeWrite a i e
 
-instance (MonadArray m, Monoid w) => MonadArray (Strict.WriterT w m) where
-  newtype Arr (Strict.WriterT w m) i e = ArrStrictWriterT { runArrStrictWriterT :: Arr m i e }
+instance MArray1 IOUArray e IO => MArray1 (UArr IO) e IO where
+  getBounds1                  = getBounds1 . runUArrIO
+  getNumElements1             = getNumElements1 . runUArrIO
+  newArray1 bs e              = UArrIO <$> newArray1 bs e
+  newArray1_ bs               = UArrIO <$> newArray1_ bs
+  unsafeNewArray1_ bs         = UArrIO <$> unsafeNewArray1_ bs
+  unsafeRead1 (UArrIO a) i    = unsafeRead1 a i
+  unsafeWrite1 (UArrIO a) i e = unsafeWrite1 a i e
+  
+instance MonadUArray IO where
+  newtype UArr IO i e = UArrIO { runUArrIO :: IOUArray i e } 
 
-  getBoundsM                            = lift . getBounds . runArrStrictWriterT
-  getNumElementsM                       = lift . getNumElements . runArrStrictWriterT
-  newArrayM bs e                        = lift $ ArrStrictWriterT `liftM` newArray bs e
-  newArrayM_ bs                         = lift $ ArrStrictWriterT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs                   = lift $ ArrStrictWriterT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrStrictWriterT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrStrictWriterT a) i e = lift $ unsafeWrite a i e
+instance MArray (STUArray s) e (ST s) => MArray (UArr (ST s)) e (ST s) where
+  getBounds                  = getBounds . runUArrST
+  getNumElements             = getNumElements . runUArrST
+  newArray bs e              = UArrST <$> newArray bs e
+  newArray_ bs               = UArrST <$> newArray_ bs
+  unsafeNewArray_ bs         = UArrST <$> unsafeNewArray_ bs
+  unsafeRead (UArrST a) i    = unsafeRead a i
+  unsafeWrite (UArrST a) i e = unsafeWrite a i e
 
-instance Monoid w => MonadArrayTrans (Strict.WriterT w) where
-  liftArr = ArrStrictWriterT
-  lowerArr = runArrStrictWriterT
+instance MArray1 (STUArray s) e (ST s) => MArray1 (UArr (ST s)) e (ST s) where
+  getBounds1                  = getBounds1 . runUArrST
+  getNumElements1             = getNumElements1 . runUArrST
+  newArray1 bs e              = UArrST <$> newArray1 bs e
+  newArray1_ bs               = UArrST <$> newArray1_ bs
+  unsafeNewArray1_ bs         = UArrST <$> unsafeNewArray1_ bs
+  unsafeRead1 (UArrST a) i    = unsafeRead1 a i
+  unsafeWrite1 (UArrST a) i e = unsafeWrite1 a i e
+  
+instance MonadUArray (ST s) where
+  newtype UArr (ST s) i e = UArrST { runUArrST :: STUArray s i e } 
+  
+instance (MonadTrans t, Monad (t m), MonadUArray m, MArray (UArr m) e m) => MArray (UArr (t m)) e (t m) where
+  getBounds                  = lift . getBounds . runUArrT
+  getNumElements             = lift . getNumElements . runUArrT
+  newArray bs e              = lift $ UArrT `liftM` newArray bs e
+  newArray_ bs               = lift $ UArrT `liftM` newArray_ bs
+  unsafeNewArray_ bs         = lift $ UArrT `liftM` unsafeNewArray_ bs
+  unsafeRead (UArrT a) i     = lift $ unsafeRead a i
+  unsafeWrite (UArrT a) i e  = lift $ unsafeWrite a i e
 
-instance (MonadArray m, Monoid w) => MonadArray (Lazy.WriterT w m) where
-  newtype Arr (Lazy.WriterT w m) i e = ArrLazyWriterT { runArrLazyWriterT :: Arr m i e }
-
-  getBoundsM                          = lift . getBounds . runArrLazyWriterT
-  getNumElementsM                     = lift . getNumElements . runArrLazyWriterT
-  newArrayM bs e                      = lift $ ArrLazyWriterT `liftM` newArray bs e
-  newArrayM_ bs                       = lift $ ArrLazyWriterT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs                 = lift $ ArrLazyWriterT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrLazyWriterT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrLazyWriterT a) i e = lift $ unsafeWrite a i e
-
-instance Monoid w => MonadArrayTrans (Lazy.WriterT w) where
-  liftArr = ArrLazyWriterT
-  lowerArr = runArrLazyWriterT
-
-instance (MonadArray m, Monoid w) => MonadArray (Strict.RWST r w s m) where
-  newtype Arr (Strict.RWST r w s m) i e = ArrStrictRWST { runArrStrictRWST :: Arr m i e }
-
-  getBoundsM                         = lift . getBounds . runArrStrictRWST
-  getNumElementsM                    = lift . getNumElements . runArrStrictRWST
-  newArrayM bs e                     = lift $ ArrStrictRWST `liftM` newArray bs e
-  newArrayM_ bs                      = lift $ ArrStrictRWST `liftM` newArray_ bs
-  unsafeNewArrayM_ bs                = lift $ ArrStrictRWST `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrStrictRWST a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrStrictRWST a) i e = lift $ unsafeWrite a i e
-
-instance Monoid w => MonadArrayTrans (Strict.RWST r w s) where
-  liftArr = ArrStrictRWST
-  lowerArr = runArrStrictRWST
-
-instance (MonadArray m, Monoid w) => MonadArray (Lazy.RWST r w s m) where
-  newtype Arr (Lazy.RWST r w s m) i e = ArrLazyRWST { runArrLazyRWST :: Arr m i e }
-
-  getBoundsM                       = lift . getBounds . runArrLazyRWST
-  getNumElementsM                  = lift . getNumElements . runArrLazyRWST
-  newArrayM bs e                   = lift $ ArrLazyRWST `liftM` newArray bs e
-  newArrayM_ bs                    = lift $ ArrLazyRWST `liftM` newArray_ bs
-  unsafeNewArrayM_ bs              = lift $ ArrLazyRWST `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrLazyRWST a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrLazyRWST a) i e = lift $ unsafeWrite a i e
-
-instance Monoid w => MonadArrayTrans (Lazy.RWST r w s) where
-  liftArr = ArrLazyRWST
-  lowerArr = runArrLazyRWST
-
-instance MonadArray m => MonadArray (Strict.StateT s m) where
-  newtype Arr (Strict.StateT s m) i e = ArrStrictStateT { runArrStrictStateT :: Arr m i e }
-
-  getBoundsM                           = lift . getBounds . runArrStrictStateT
-  getNumElementsM                      = lift . getNumElements . runArrStrictStateT
-  newArrayM bs e                       = lift $ ArrStrictStateT `liftM` newArray bs e
-  newArrayM_ bs                        = lift $ ArrStrictStateT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs                  = lift $ ArrStrictStateT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrStrictStateT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrStrictStateT a) i e = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans (Strict.StateT s) where
-  liftArr = ArrStrictStateT
-  lowerArr = runArrStrictStateT
-
-instance MonadArray m => MonadArray (Lazy.StateT s m) where
-  newtype Arr (Lazy.StateT s m) i e = ArrLazyStateT { runArrLazyStateT :: Arr m i e }
-
-  getBoundsM                         = lift . getBounds . runArrLazyStateT
-  getNumElementsM                    = lift . getNumElements . runArrLazyStateT
-  newArrayM bs e                     = lift $ ArrLazyStateT `liftM` newArray bs e
-  newArrayM_ bs                      = lift $ ArrLazyStateT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs                = lift $ ArrLazyStateT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrLazyStateT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrLazyStateT a) i e = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans (Lazy.StateT s) where
-  liftArr = ArrLazyStateT
-  lowerArr = runArrLazyStateT
-
-instance MonadArray m => MonadArray (MaybeT m) where
-  newtype Arr (MaybeT m) i e = ArrMaybeT { runArrMaybeT :: Arr m i e }
-
-  getBoundsM                     = lift . getBounds . runArrMaybeT
-  getNumElementsM                = lift . getNumElements . runArrMaybeT
-  newArrayM bs e                 = lift $ ArrMaybeT `liftM` newArray bs e
-  newArrayM_ bs                  = lift $ ArrMaybeT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs            = lift $ ArrMaybeT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrMaybeT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrMaybeT a) i e = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans MaybeT where
-  liftArr = ArrMaybeT
-  lowerArr = runArrMaybeT
-
-instance MonadArray m => MonadArray (IdentityT m) where
-  newtype Arr (IdentityT m) i e = ArrIdentityT { runArrIdentityT :: Arr m i e }
-
-  getBoundsM                        = lift . getBounds . runArrIdentityT
-  getNumElementsM                   = lift . getNumElements . runArrIdentityT
-  newArrayM bs e                    = lift $ ArrIdentityT `liftM` newArray bs e
-  newArrayM_ bs                     = lift $ ArrIdentityT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs               = lift $ ArrIdentityT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrIdentityT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrIdentityT a) i e = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans IdentityT where
-  liftArr = ArrIdentityT
-  lowerArr = runArrIdentityT
-
-instance (MonadArray m, Error x) => MonadArray (ErrorT x m) where
-  newtype Arr (ErrorT x m) i e = ArrErrorT { runArrErrorT :: Arr m i e }
-
-  getBoundsM                     = lift . getBounds . runArrErrorT
-  getNumElementsM                = lift . getNumElements . runArrErrorT
-  newArrayM bs e                 = lift $ ArrErrorT `liftM` newArray bs e
-  newArrayM_ bs                  = lift $ ArrErrorT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs            = lift $ ArrErrorT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrErrorT a) i    = lift $ unsafeRead a i
-  unsafeWriteM (ArrErrorT a) i e = lift $ unsafeWrite a i e
-
-instance Error x => MonadArrayTrans (ErrorT x) where
-  liftArr = ArrErrorT
-  lowerArr = runArrErrorT
-
-instance MonadArray m => MonadArray (ContT r m) where
-  newtype Arr (ContT r m) i e = ArrContT { runArrContT :: Arr m i e }
-
-  getBoundsM                     = lift . getBounds . runArrContT
-  getNumElementsM                = lift . getNumElements . runArrContT
-  newArrayM bs e                 = lift $ ArrContT `liftM` newArray bs e
-  newArrayM_ bs                  = lift $ ArrContT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs            = lift $ ArrContT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrContT a) i     = lift $ unsafeRead a i
-  unsafeWriteM (ArrContT a) i e  = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans (ContT r) where
-  liftArr = ArrContT
-  lowerArr = runArrContT
-
-instance MonadArray m => MonadArray (ListT m) where
-  newtype Arr (ListT m) i e = ArrListT { runArrListT :: Arr m i e }
-
-  getBoundsM                     = lift . getBounds . runArrListT
-  getNumElementsM                = lift . getNumElements . runArrListT
-  newArrayM bs e                 = lift $ ArrListT `liftM` newArray bs e
-  newArrayM_ bs                  = lift $ ArrListT `liftM` newArray_ bs
-  unsafeNewArrayM_ bs            = lift $ ArrListT `liftM` unsafeNewArray_ bs
-  unsafeReadM (ArrListT a) i     = lift $ unsafeRead a i
-  unsafeWriteM (ArrListT a) i e  = lift $ unsafeWrite a i e
-
-instance MonadArrayTrans ListT where
-  liftArr = ArrListT
-  lowerArr = runArrListT
--}
+instance (MonadTrans t, Monad (t m), MonadUArray m, MArray1 (UArr m) f m) => MArray1 (UArr (t m)) f (t m) where
+  getBounds1                  = lift . getBounds1 . runUArrT
+  getNumElements1             = lift . getNumElements1 . runUArrT
+  newArray1 bs e              = lift $ UArrT `liftM` newArray1 bs e
+  newArray1_ bs               = lift $ UArrT `liftM` newArray1_ bs
+  unsafeNewArray1_ bs         = lift $ UArrT `liftM` unsafeNewArray1_ bs
+  unsafeRead1 (UArrT a) i     = lift $ unsafeRead1 a i
+  unsafeWrite1 (UArrT a) i e  = lift $ unsafeWrite1 a i e
+  
+instance (MonadTrans t, Monad (t m), MonadUArray m) => MonadUArray (t m) where
+  newtype UArr (t m) i e = UArrT { runUArrT :: UArr m i e } 
