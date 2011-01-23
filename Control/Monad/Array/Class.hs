@@ -24,6 +24,8 @@ import Control.Monad.Trans.Error
 import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Cont
+import Control.Monad.Trans.List
 import Control.Monad.Trans.Writer.Lazy as Lazy
 import Control.Monad.Trans.Writer.Strict as Strict
 import Control.Monad.Trans.State.Lazy as Lazy
@@ -240,3 +242,33 @@ instance (MonadArray m, Error x) => MonadArray (ErrorT x m) where
 instance Error x => MonadArrayTrans (ErrorT x) where
   liftArr = ArrErrorT
   lowerArr = runArrErrorT
+
+instance MonadArray m => MonadArray (ContT r m) where
+  newtype Arr (ContT r m) i e = ArrContT { runArrContT :: Arr m i e }
+
+  getBoundsM                     = lift . getBounds . runArrContT
+  getNumElementsM                = lift . getNumElements . runArrContT
+  newArrayM bs e                 = lift $ ArrContT `liftM` newArray bs e
+  newArrayM_ bs                  = lift $ ArrContT `liftM` newArray_ bs
+  unsafeNewArrayM_ bs            = lift $ ArrContT `liftM` unsafeNewArray_ bs
+  unsafeReadM (ArrContT a) i     = lift $ unsafeRead a i
+  unsafeWriteM (ArrContT a) i e  = lift $ unsafeWrite a i e
+
+instance MonadArrayTrans (ContT r) where
+  liftArr = ArrContT
+  lowerArr = runArrContT
+
+instance MonadArray m => MonadArray (ListT m) where
+  newtype Arr (ListT m) i e = ArrListT { runArrListT :: Arr m i e }
+
+  getBoundsM                     = lift . getBounds . runArrListT
+  getNumElementsM                = lift . getNumElements . runArrListT
+  newArrayM bs e                 = lift $ ArrListT `liftM` newArray bs e
+  newArrayM_ bs                  = lift $ ArrListT `liftM` newArray_ bs
+  unsafeNewArrayM_ bs            = lift $ ArrListT `liftM` unsafeNewArray_ bs
+  unsafeReadM (ArrListT a) i     = lift $ unsafeRead a i
+  unsafeWriteM (ArrListT a) i e  = lift $ unsafeWrite a i e
+
+instance MonadArrayTrans ListT where
+  liftArr = ArrListT
+  lowerArr = runArrListT
