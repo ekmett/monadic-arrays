@@ -9,8 +9,8 @@ maintainer:    Edward A. Kmett <ekmett@gmail.com>
 stability:     provisional
 homepage:      http://github.com/ekmett/monadic-arrays/
 copyright:     Copyright (C) 2011 Edward A. Kmett
-synopsis:      Provides access to unboxed arrays
-description:   Provides access to unboxed arrays
+synopsis:      MArray instances for monad transformers
+description:   MArray instances for monad transformers
 build-type:    Simple
 
 source-repository head
