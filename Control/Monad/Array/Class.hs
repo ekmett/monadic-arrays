@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, UndecidableInstances #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Monad.Array.Class
@@ -12,7 +12,7 @@
 ----------------------------------------------------------------------------
 module Control.Monad.Array.Class
   ( MonadArray(..)
-  , MonadArrayTrans(..)
+--  , MonadArrayTrans(..)
   ) where
 
 import Control.Applicative
@@ -20,6 +20,10 @@ import Control.Concurrent.STM
 import Control.Monad (liftM)
 import Control.Monad.ST
 import Control.Monad.Trans.Class
+import Data.Array.Base
+import Data.Array.IO
+import Data.Array.ST
+{-
 import Control.Monad.Trans.Error
 import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Maybe
@@ -32,10 +36,8 @@ import Control.Monad.Trans.State.Lazy as Lazy
 import Control.Monad.Trans.State.Strict as Strict
 import Control.Monad.Trans.RWS.Lazy as Lazy
 import Control.Monad.Trans.RWS.Strict as Strict
-import Data.Array.Base
-import Data.Array.IO
-import Data.Array.ST
 import Data.Monoid
+-}
 
 class Monad m => MonadArray m where
   data Arr m :: * -> * -> *
@@ -93,6 +95,17 @@ instance MonadArray STM where
   unsafeReadM (ArrSTM a) i    = unsafeRead a i
   unsafeWriteM (ArrSTM a) i e = unsafeWrite a i e
 
+instance (MonadTrans t, Monad (t m), MonadArray m) => MonadArray (t m) where
+  newtype Arr (t m) i e = ArrT { runArrT :: Arr m i e } 
+  getBoundsM                      = lift . getBounds . runArrT
+  getNumElementsM                 = lift . getNumElements . runArrT
+  newArrayM bs e                  = lift $ ArrT `liftM` newArray bs e
+  newArrayM_ bs                   = lift $ ArrT `liftM` newArray_ bs
+  unsafeNewArrayM_ bs             = lift $ ArrT `liftM` unsafeNewArray_ bs
+  unsafeReadM (ArrT a) i    = lift $ unsafeRead a i
+  unsafeWriteM (ArrT a) i e = lift $ unsafeWrite a i e
+
+{-
 instance MonadArray m => MonadArray (ReaderT r m) where
   newtype Arr (ReaderT r m) i e = ArrReaderT { runArrReaderT :: Arr m i e }
 
@@ -272,3 +285,4 @@ instance MonadArray m => MonadArray (ListT m) where
 instance MonadArrayTrans ListT where
   liftArr = ArrListT
   lowerArr = runArrListT
+-}
