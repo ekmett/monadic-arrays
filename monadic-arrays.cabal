@@ -1,6 +1,6 @@
 name:          monadic-arrays
 category:      Data Structures
-version:       0.2.1.1
+version:       0.2.1.2
 license:       BSD3
 cabal-version: >= 1.6
 license-file:  LICENSE
@@ -9,7 +9,7 @@ maintainer:    Edward A. Kmett <ekmett@gmail.com>
 stability:     provisional
 homepage:      http://github.com/ekmett/monadic-arrays/
 bug-reports:   http://github.com/ekmett/monadic-arrays/issues
-copyright:     Copyright (C) 2011 Edward A. Kmett
+copyright:     Copyright (C) 2011-2012 Edward A. Kmett
 synopsis:      Boxed and unboxed arrays for monad transformers
 description:   Boxed and unboxed arrays for monad transformers
 build-type:    Simple
@@ -24,7 +24,7 @@ library
     base         >= 4 && < 5,
     array        >= 0.3.0.2 && < 0.5,
     transformers >= 0.2.0 && < 0.4,
-    stm          >= 2.1.2.1 && < 2.4
+    stm          >= 2.1.2.1 && < 2.6
 
   exposed-modules:
     Control.Monad.Array.Class
