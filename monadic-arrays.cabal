@@ -1,6 +1,6 @@
 name:          monadic-arrays
 category:      Data Structures
-version:       0.2.1.3
+version:       0.2.1.4
 license:       BSD3
 cabal-version: >= 1.6
 license-file:  LICENSE
@@ -23,7 +23,7 @@ library
   build-depends:
     base         >= 4       && < 5,
     array        >= 0.3.0.2 && < 0.6,
-    transformers >= 0.2.0   && < 0.4,
+    transformers >= 0.2.0   && < 0.5,
     stm          >= 2.1.2.1 && < 2.6
 
   exposed-modules:
